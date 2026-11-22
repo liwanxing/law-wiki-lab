@@ -12,7 +12,7 @@ from pathlib import Path
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from app.common import client, embed
-from app.config import COLLECTION_NAME, DATA_DIR, EMBED_DIM
+from app.config import COLLECTION_NAME, DATA_DIR, EMBED_DIM, NOTES_DIR
 
 # 双链提取：条文里的“本法第X条”引用。中文数字条文号，一条法内唯一。
 LINK_PATTERN = re.compile(r"本法(第[一二三四五六七八九十百零]+条)")
@@ -34,7 +34,7 @@ def extract_links(text: str, law_name: str) -> list[str]:
     return links
 
 
-def split_blocks(path: Path) -> list[dict]:
+def split_blocks(path: Path, with_links: bool = True) -> list[dict]:
     """读一部法律的 md，按 '### 第X条' 切成一块一块，每块带面包屑。
 
     面包屑 = 这条法条在文档里的位置路径，由它头顶上的标题拼成：
@@ -44,6 +44,9 @@ def split_blocks(path: Path) -> list[dict]:
     见到 # 换法名、见到 ## 换章名、见到 ### 收一条——
     每条收尾时，面包屑 = 头顶的 # ## 标题 + 这条的条文号（### 行）。
     面包屑必须唯一到条文级，否则同章各条算出同一个 id，会互相覆盖。
+
+    with_links=False 时不提双链（整理笔记里的"本法"没有明确指向，
+    提出来的链会指错地方，所以笔记块一律 links 为空）。
     """
     law_name = path.stem
     breadcrumb = [law_name]            # 当前位置：第 0 层固定用文件名（法名）
@@ -58,7 +61,7 @@ def split_blocks(path: Path) -> list[dict]:
                     if current[0].startswith("### "):
                         parts.append(current[0][4:].strip())  # 条文号补进面包屑末级
                     blocks.append({"text": text, "breadcrumb": " > ".join(parts),
-                                   "links": extract_links(text, law_name)})
+                                   "links": extract_links(text, law_name) if with_links else []})
             current = [line]
         elif line.startswith("## "):   # 换章：更新位置第 1 层（章标题不进条文内容）
             breadcrumb = [law_name, line[3:].strip()]
@@ -73,7 +76,7 @@ def split_blocks(path: Path) -> list[dict]:
             if current[0].startswith("### "):
                 parts.append(current[0][4:].strip())      # 条文号补进面包屑末级
             blocks.append({"text": text, "breadcrumb": " > ".join(parts),
-                           "links": extract_links(text, law_name)})
+                           "links": extract_links(text, law_name) if with_links else []})
     return blocks
 
 
@@ -96,10 +99,13 @@ def ingest() -> int:
     - 已删的条（库里有、本地 md 没有）-> 从库里删除
     返回本次实际向量化写入的块数。
     """
-    # 1. 本地：切出所有块，按稳定 id 归档（面包屑就是法条的地址）
+    # 1. 本地：切出所有块（法条 + 整理笔记），按稳定 id 归档
     blocks = []
     for path in sorted(Path(DATA_DIR).glob("*.md")):
-        blocks.extend(split_blocks(path))
+        blocks.extend(split_blocks(path))                    # 法条："本法"有明确指向
+    NOTES_DIR.mkdir(exist_ok=True)                           # 顺手建目录，首次运行也不报错
+    for path in sorted(Path(NOTES_DIR).glob("*.md")):
+        blocks.extend(split_blocks(path, with_links=False))  # 笔记："本法"无指向，不提双链
     blocks_by_id = {point_id(c["breadcrumb"]): c for c in blocks}
 
     # 2. 建集合（只在第一次运行时；已存在则不动，里面旧数据保留）

@@ -13,9 +13,13 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-#: 原始法律资料目录。vector_store.py 读这里所有 .md 文件，
+#: 原始法律资料目录。ingest.py 读这里所有 .md 文件，
 #: 每个 '### 第X条' 小节会被切成一个块。
 DATA_DIR = PROJECT_ROOT / "data" / "raw"
+
+#: 整理笔记目录。问答存回知识库的知识：一份笔记一个 md 文件，
+#: 文件名就是笔记标题。入库后与法条在同一集合里参与检索。
+NOTES_DIR = PROJECT_ROOT / "data" / "notes"
 
 
 # ============ 向量检索（第一步：Qdrant 跑通）============

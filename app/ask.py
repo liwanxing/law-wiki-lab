@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import urllib.request
 
 from app.common import client, embed
-from app.config import COLLECTION_NAME, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, RELEVANCE_THRESHOLD
+from app.config import (COLLECTION_NAME, LLM_API_KEY, LLM_BASE_URL,
+                        LLM_MODEL, NOTES_DIR, RELEVANCE_THRESHOLD)
+from app.ingest import ingest
 
 PROMPT_TEMPLATE = """你是一个法律咨询助手。请严格只依据下面的法律条文材料回答问题。
 
@@ -123,6 +126,31 @@ def expand_links(hits: list[dict]) -> list[dict]:
     return extra
 
 
+def save_note(question: str, reply: str) -> None:
+    """知识回流：把整理出的回答存成笔记文件，并立即复用入库流水线。
+
+    "加"的原理：一个新标题 = 一个新文件 = 一级面包屑 = 一个新稳定 id，
+    对增量入库来说就是一条"新条"——ingest() 认得它，自动向量化写入。
+    之后每次检索，这份整理会和法条一起被向量检索命中。
+    （同标题重存就是"更新"：id 不变、文本变了，增量机制按"改条"覆盖。）
+    """
+    try:
+        if input("\n把这条整理存进知识库？(y = 存，直接回车 = 跳过)：").strip().lower() != "y":
+            return
+        title = input("笔记标题（如：违法辞退赔偿）：").strip()
+    except EOFError:             # stdin 已关闭（脚本化管道等场景），静默跳过
+        return
+    title = re.sub(r'[\\/:*?"<>|]', "-", title)   # Windows 文件名非法字符换成 -
+    if not title:
+        print("未提供标题，跳过。")
+        return
+    NOTES_DIR.mkdir(exist_ok=True)
+    path = NOTES_DIR / f"{title}.md"
+    path.write_text(f"# {title}\n\n{reply}\n\n（来源问题：{question}）\n", encoding="utf-8")
+    written = ingest()   # 复用入库流水线：新标题 = 新面包屑 = 新 id = 新增
+    print(f"已存为笔记 {path.name}，入库完成：本次向量化写入 {written} 块。")
+
+
 def answer(question: str) -> None:
     """法律咨询问答：检索 -> 链接扩展 -> 拼提示词 -> 调大模型 -> 打印。"""
     # 1. 检索：找最相关的几条法条
@@ -160,6 +188,9 @@ def answer(question: str) -> None:
             print(f"  【{h['breadcrumb']}】")
     reply = ask_llm(prompt)
     print(f"\n===== 咨询回答 =====\n{reply}")
+
+    # 7. 知识回流：答得好就存回知识库，下次检索直接命中这份整理
+    save_note(question, reply)
 
 
 if __name__ == "__main__":

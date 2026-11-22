@@ -30,9 +30,10 @@ python -m app.ask "被公司开除了怎么赔偿"   # 全文没有"开除"二�
 app/
   config.py  配置：Qdrant/embedding/大模型接口（key 内置智谱免费模型，可用 api_key.txt 覆盖）
   common.py  共享资源：向量化模型、Qdrant 连接（入库和问答共用，只建一份）
-  ingest.py  入库流水线：切块 -> 向量化 -> 稳定 id 增量存储
-  ask.py     问答：向量检索法条 -> 拼提示词 -> 大模型作答
+  ingest.py  入库流水线：切块（面包屑+双链） -> 向量化 -> 稳定 id 增量存储
+  ask.py     问答：向量检索 -> 链接扩展 -> 大模型作答 -> 知识回流
 data/raw/          法律原文 markdown（### 第X条 = 一块，加法律直接放新 md）
+data/notes/       整理笔记 markdown（问答确认后存回，一份知识一个文件，与法条同库检索）
 ```
 
 学习方式：只保留最简基线代码，每看懂一层、提交一版，再追加下一层功能，
