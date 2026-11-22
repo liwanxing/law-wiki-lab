@@ -29,28 +29,33 @@ model = TextEmbedding(EMBED_MODEL)                            # 向量化模型�
 client = QdrantClient(QDRANT_URL, check_compatibility=False)  # 连接 Docker 里的 Qdrant
 
 
-def split_blocks(text: str) -> list[str]:
-    """把法律 md 按 '### 第X条' 切成一块一块，一块就是一条法条。
+def split_blocks(path: Path) -> list[dict]:
+    """读一部法律的 md，按 '### 第X条' 切成一块一块，每块带法律名。
 
-    例子：下面这种 md 会切成两个块——
-        ### 第十九条
-        劳动合同期限三个月以上不满一年的，试用期不得超过一个月...
+    每块长这样：
+        {"text": "### 第十九条\n\n劳动合同期限三个月以上...", "law": "劳动合同法"}
 
-        ### 第二十条
-        劳动者在试用期的工资不得低于...
+    law 取自文件名（"劳动合同法.md" -> "劳动合同法"）。
+    为什么要有它：两部法律都有"第十九条"，只靠条文号分不清是谁的，
+    出处必须长到 "法律名 > 条文号" 两级。
     """
+    law_name = path.stem             # 文件名去掉 .md，就是法律名
     blocks = []
     current: list[str] = []          # 攒"当前这一条"的所有行
-    for line in text.splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("### "):  # 看到 ### = 新的一条开始了
             if current:              # 先把上一条收尾
-                blocks.append("\n".join(current).strip())
+                text = "\n".join(current).strip()
+                if text:
+                    blocks.append({"text": text, "law": law_name})
             current = [line]         # 新的一条从这行开始攒
         else:
             current.append(line)
     if current:                      # 最后一条后面没有 ### 帮它收尾，手动补
-        blocks.append("\n".join(current).strip())
-    return [b for b in blocks if b]
+        text = "\n".join(current).strip()
+        if text:
+            blocks.append({"text": text, "law": law_name})
+    return blocks
 
 
 def embed(texts: list[str]) -> list[list[float]]:
@@ -67,7 +72,7 @@ def ingest() -> int:
     # 1. 读 data/raw 下所有法律 md，切成块（以后加新法律，把 md 放进目录就行）
     blocks = []
     for path in sorted(Path(DATA_DIR).glob("*.md")):
-        blocks.extend(split_blocks(path.read_text(encoding="utf-8")))
+        blocks.extend(split_blocks(path))
 
     # 2. 建集合：先删旧的再建，保证每次入库从零开始（学习期可复现）
     if client.collection_exists(COLLECTION_NAME):
@@ -77,11 +82,11 @@ def ingest() -> int:
         vectors_config=VectorParams(size=EMBED_DIM, distance=Distance.COSINE),
     )
 
-    # 3. 每块变向量，连同原文一起存进 Qdrant
-    vectors = embed(blocks)
+    # 3. 每块变向量，连同原文和法律名一起存进 Qdrant
+    vectors = embed([c["text"] for c in blocks])
     points = [
-        PointStruct(id=i, vector=v, payload={"text": t})
-        for i, (t, v) in enumerate(zip(blocks, vectors), start=1)
+        PointStruct(id=i, vector=v, payload={"text": c["text"], "law": c["law"]})
+        for i, (c, v) in enumerate(zip(blocks, vectors), start=1)
     ]
     client.upsert(COLLECTION_NAME, points=points)
     return len(points)
@@ -98,10 +103,9 @@ def search(question: str, top_k: int = 3) -> None:
     )
     for h in hits.points:
         text = h.payload["text"]
-        # 出处就藏在块的首行（入库时每个块都以 "### 第X条" 开头），
-        # 去掉 "### " 前缀得到干净的条文号，如 "### 第十九条" -> "第十九条"
-        source = text.splitlines()[0].removeprefix("### ")
-        print(f"\n【{source}】相似度 {h.score:.4f}")
+        # 出处 = 法律名（payload 里的 law）+ 条文号（块首行 "### 第X条" 去前缀）
+        article = text.splitlines()[0].removeprefix("### ")
+        print(f"\n【{h.payload['law']} > {article}】相似度 {h.score:.4f}")
         print(text)
 
 
