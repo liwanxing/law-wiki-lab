@@ -14,23 +14,24 @@ docker run -d --name law-wiki-qdrant -p 6333:6333 -v law-wiki-qdrant-data:/qdran
 # 2. 安装依赖（两个包，模型本地跑，无需任何 API key）
 python -m pip install qdrant-client fastembed
 
-# 3. 法条入库：切块 -> 向量化 -> 存进 Qdrant（首次会下载 embedding 模型约 95MB）
-python -m app.vector_store
+# 3. 法条入库：切块 -> 向量化 -> 增量存储（首次会下载 embedding 模型约 95MB）
+python -m app.ingest
 
 # 4. 法律咨询问答：向量检索最相关法条 + 大模型照着法条作答
-python -m app.vector_store "试用期最长多久"
-python -m app.vector_store "被公司开除了怎么赔偿"   # 全文没有"开除"二字，照样命中第 87 条
+python -m app.ask "试用期最长多久"
+python -m app.ask "被公司开除了怎么赔偿"   # 全文没有"开除"二字，照样命中第 87 条
 
-# 问答需要 LLM_API_KEY 环境变量（智谱 glm-4-flash 免费模型）；
-# 没配置时自动降级：只打印拼好的提示词，可手动粘给任意 AI
+# 问答用的是智谱 glm-4-flash 免费模型，key 已内置（也可在项目根建 api_key.txt 换自己的）
 ```
 
 ## 文件结构
 
 ```
 app/
-  vector_store.py  全部代码：切块 -> 向量入库 -> 向量检索 -> 大模型问答
-  config.py        配置：Qdrant/embedding/大模型接口（key 走环境变量 LLM_API_KEY）
+  config.py  配置：Qdrant/embedding/大模型接口（key 内置智谱免费模型，可用 api_key.txt 覆盖）
+  common.py  共享资源：向量化模型、Qdrant 连接（入库和问答共用，只建一份）
+  ingest.py  入库流水线：切块 -> 向量化 -> 稳定 id 增量存储
+  ask.py     问答：向量检索法条 -> 拼提示词 -> 大模型作答
 data/raw/          法律原文 markdown（### 第X条 = 一块，加法律直接放新 md）
 ```
 

@@ -10,7 +10,6 @@
 """
 
 from pathlib import Path
-import os
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -50,7 +49,13 @@ LLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 #: 模型名：glm-4-flash 是智谱的免费对话模型。
 LLM_MODEL = "glm-4-flash"
 
-#: API key 必须从环境变量读，不写进代码：代码会提交 GitHub，
-#: key 写死在代码里等于把家门钥匙贴在门上。
-#: 设置方法（PowerShell）：$env:LLM_API_KEY = "你的key"
-LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
+#: API key：优先读项目根下的 api_key.txt（不进 git，想换 key 就新建这个文件）；
+#: 文件不存在就直接用内置 key——智谱 glm-4-flash 是免费模型，学习项目内置无妨。
+def _load_api_key() -> str:
+    key_file = PROJECT_ROOT / "api_key.txt"
+    if key_file.exists():
+        return key_file.read_text(encoding="utf-8").strip()
+    return "2f78b5cfd72d45c5995189703ddab45a.OPWz6mBEHSux44rP"
+
+
+LLM_API_KEY = _load_api_key()

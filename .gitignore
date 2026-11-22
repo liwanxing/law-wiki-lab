@@ -2,6 +2,9 @@
 venv/
 __pycache__/
 
+# API key 本地文件（config.py 内置了智谱免费 key 作为兜底，想换 key 建这个文件）
+api_key.txt
+
 # IDEA 个人工作区（运行配置 .idea/runConfigurations/ 保留提交）
 .idea/workspace.xml
 .idea/tasks.xml
