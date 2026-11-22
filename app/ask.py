@@ -78,12 +78,53 @@ def ask_llm(prompt: str) -> str:
     return body["choices"][0]["message"]["content"]
 
 
-def answer(question: str) -> None:
-    """法律咨询问答：检索 -> 拼提示词 -> 调大模型 -> 打印依据和回答。
+def expand_links(hits: list[dict]) -> list[dict]:
+    """链接扩展：顺着检索结果的双链，把被引用条文的原文捞回来。
 
-    RAG 的最后一块拼图：search 负责"找到法条"，answer 负责
-    "让大模型照着法条说话"——模型没变，变的是卷子上夹了什么材料。
+    为什么值得做：87 条说"依照本法第四十七条标准的二倍"——
+    47 条（经济补偿计算标准）是理解 87 条的前提，但 47 条
+    和"开除赔偿"字面不相似，向量检索很可能捞不到它。
+    双链在入库时已存好，这里只需按目标地址去库里捞原文。
+
+    匹配逻辑：双链是短地址（法名 > 条文号），面包屑是完整地址
+    （法名 > 章 > 条文号）——首段和末段都对上就是同一条文。
+    返回扩展块列表（score 记 0.0，表示不是直接命中而是顺链来的）。
     """
+    # 1. 收集所有双链目标（多命中指向同一目标时自动去重）
+    targets = set()
+    for h in hits:
+        targets.update(h["links"])
+    if not targets:
+        return []
+
+    # 2. 翻一遍库，把命中的目标条文捞出来（数据在 payload 里，不用读原文）
+    extra = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=COLLECTION_NAME,
+            limit=256,
+            offset=offset,
+            with_payload=True,
+        )
+        for p in points:
+            bc = p.payload["breadcrumb"]
+            short = bc.split(" > ")[0] + " > " + bc.split(" > ")[-1]  # 法名 + 条文号
+            if short in targets:
+                extra.append({
+                    "breadcrumb": bc,
+                    "text": p.payload["text"],
+                    "links": p.payload.get("links", []),
+                    "score": 0.0,
+                })
+                targets.discard(short)   # 已找到，不再重复捞
+        if offset is None or not targets:
+            break
+    return extra
+
+
+def answer(question: str) -> None:
+    """法律咨询问答：检索 -> 链接扩展 -> 拼提示词 -> 调大模型 -> 打印。"""
     # 1. 检索：找最相关的几条法条
     hits = search(question)
 
@@ -95,19 +136,28 @@ def answer(question: str) -> None:
         print("可以换个说法重试，或往 data/raw/ 里扩充法律库。")
         return
 
-    # 3. 把法条拼成材料段，出处用【面包屑】标注（章节位置一目了然）
-    context = "\n\n".join(f"【{h['breadcrumb']}】\n{h['text']}" for h in hits)
+    # 3. 链接扩展：顺着双链把被引用的条文也拉进卷子。
+    #    对比第5层的"夹带"：那时 47 条在模型脑子里（不受控），
+    #    现在由系统把它正经放进材料（受控且可溯源）。
+    linked = expand_links(hits)
 
-    # 4. 按模板拼提示词（出一张"开卷考试"的卷子）
+    # 4. 把法条拼成材料段，出处用【面包屑】标注（章节位置一目了然）
+    context = "\n\n".join(f"【{h['breadcrumb']}】\n{h['text']}" for h in hits + linked)
+
+    # 5. 按模板拼提示词（出一张"开卷考试"的卷子）
     prompt = PROMPT_TEMPLATE.format(context=context, question=question)
 
-    # 5. 调大模型作答，先打印检索依据（双链展示这条还引用了哪些条文）
+    # 6. 调大模型作答，先打印检索依据（区分直接命中和顺链扩展）
     print("检索到的依据：")
     for h in hits:
         line = f"  【{h['breadcrumb']}】相似度 {h['score']:.4f}"
         if h["links"]:
             line += f"  双链→ {'、'.join(h['links'])}"
         print(line)
+    if linked:
+        print("顺双链扩展进材料的条文：")
+        for h in linked:
+            print(f"  【{h['breadcrumb']}】")
     reply = ask_llm(prompt)
     print(f"\n===== 咨询回答 =====\n{reply}")
 
