@@ -3,7 +3,7 @@
 做一个法律库 + 法律咨询功能：把真实法律条文向量化存进 Qdrant，
 提问时按"意思"检索出最相关的法条。
 
-数据：`data/raw/劳动合同法.md`（2012 修正版全文 98 条）。
+数据：`data/raw/` 下两部真实法律：劳动合同法（2012 修正版 98 条）、劳动法（2018 修正版 107 条）。
 
 ## 怎么跑
 
@@ -17,17 +17,20 @@ python -m pip install qdrant-client fastembed
 # 3. 法条入库：切块 -> 向量化 -> 存进 Qdrant（首次会下载 embedding 模型约 95MB）
 python -m app.vector_store
 
-# 4. 问问题 -> 向量检索最相关的法条
+# 4. 法律咨询问答：向量检索最相关法条 + 大模型照着法条作答
 python -m app.vector_store "试用期最长多久"
 python -m app.vector_store "被公司开除了怎么赔偿"   # 全文没有"开除"二字，照样命中第 87 条
+
+# 问答需要 LLM_API_KEY 环境变量（智谱 glm-4-flash 免费模型）；
+# 没配置时自动降级：只打印拼好的提示词，可手动粘给任意 AI
 ```
 
 ## 文件结构
 
 ```
 app/
-  vector_store.py  全部代码：切块 -> 向量化入库 -> 向量查询（现阶段唯一要看的文件）
-  config.py        配置：Qdrant 地址、embedding 模型、维度
+  vector_store.py  全部代码：切块 -> 向量入库 -> 向量检索 -> 大模型问答
+  config.py        配置：Qdrant/embedding/大模型接口（key 走环境变量 LLM_API_KEY）
 data/raw/          法律原文 markdown（### 第X条 = 一块，加法律直接放新 md）
 ```
 
@@ -40,9 +43,10 @@ data/raw/          法律原文 markdown（### 第X条 = 一块，加法律直�
 - HuggingFace 国内直连超时 → 已设 `HF_ENDPOINT=https://hf-mirror.com`
 - embedding 模型 `bge-small-zh-v1.5` 输出 **512 维**向量（`config.py` 的 `EMBED_DIM` 要一致）
 
-## 路线（四步，一步一个可跑的小目标）
+## 路线（逐层演进，全部完成）
 
-- [x] 第一步：向量 RAG 跑通 —— 真实法条切块、向量化入库 Qdrant、向量检索 ← 已完成
-- [ ] 第二步：扩展法律库 —— 加入更多法律（劳动法、民法典节选等），验证"入库即扩展"
-- [ ] 第三步：Wiki 切分与面包屑检索 —— 切分粒度优化、面包屑怎么更好地参与检索
-- [ ] 第四步：更新机制 —— 法条追加/修订时增量更新，知识库越用越准
+- [x] 第 1 层：向量 RAG 基线 —— 法条切块、向量化入库 Qdrant、向量检索
+- [x] 第 2 层：查询带出处 —— 条文号从块首行提取，答案可溯源
+- [x] 第 3 层：多法律混合检索 —— 劳动法入库零代码扩展，payload 加法律名
+- [x] 第 4 层：稳定 id 增量更新 —— uuid5 按内容生成身份证号，只重算改动的条文
+- [x] 第 5 层：大模型问答 —— 检索到的法条拼进提示词，glm-4-flash 照着法条作答

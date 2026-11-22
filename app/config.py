@@ -10,6 +10,7 @@
 """
 
 from pathlib import Path
+import os
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -36,3 +37,20 @@ EMBED_MODEL = "BAAI/bge-small-zh-v1.5"
 
 #: 上面这个模型输出的向量维度，创建集合时要用它。
 EMBED_DIM = 512
+
+
+# ============ 大模型问答（第 5 层：法律咨询）============
+
+# 调大模型 = 发一个 HTTP POST 到 OpenAI 兼容接口的 /chat/completions，
+# 三要素：接口地址 + 模型名 + API key。
+
+#: 接口地址（OpenAI 兼容）。智谱 GLM 免费模型 glm-4-flash，2026-11 验证连通。
+LLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+
+#: 模型名：glm-4-flash 是智谱的免费对话模型。
+LLM_MODEL = "glm-4-flash"
+
+#: API key 必须从环境变量读，不写进代码：代码会提交 GitHub，
+#: key 写死在代码里等于把家门钥匙贴在门上。
+#: 设置方法（PowerShell）：$env:LLM_API_KEY = "你的key"
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
