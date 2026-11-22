@@ -146,9 +146,12 @@ def save_note(question: str, reply: str) -> None:
         return
     NOTES_DIR.mkdir(exist_ok=True)
     path = NOTES_DIR / f"{title}.md"
+    # 标题就是知识的主键：同名文件已存在 = 同一主题的知识被修订 = "更新"；
+    # 新标题 = 新主题 = "加"。加/更新不是两个功能，是同一个写文件动作的两种结果。
+    action = "更新已有笔记" if path.exists() else "新增笔记"
     path.write_text(f"# {title}\n\n{reply}\n\n（来源问题：{question}）\n", encoding="utf-8")
-    written = ingest()   # 复用入库流水线：新标题 = 新面包屑 = 新 id = 新增
-    print(f"已存为笔记 {path.name}，入库完成：本次向量化写入 {written} 块。")
+    written = ingest()   # 复用入库流水线：新标题=新id=新增；同标题=同id+新文本=覆盖更新
+    print(f"已{action} {path.name}，入库完成：本次向量化写入 {written} 块。")
 
 
 def answer(question: str) -> None:
