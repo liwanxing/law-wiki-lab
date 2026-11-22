@@ -44,11 +44,10 @@ def search(question: str, top_k: int = 3) -> list[dict]:
     )
     results = []
     for h in hits.points:
-        text = h.payload["text"]
         results.append({
-            "law": h.payload["law"],
-            "article": text.splitlines()[0].removeprefix("### "),
-            "text": text,
+            "breadcrumb": h.payload["breadcrumb"],   # 如：劳动法 > 第五章 工资 > 第四十八条
+            "text": h.payload["text"],
+            "links": h.payload.get("links", []),      # 这条引用了哪些别的条文
             "score": h.score,
         })
     return results
@@ -96,16 +95,19 @@ def answer(question: str) -> None:
         print("可以换个说法重试，或往 data/raw/ 里扩充法律库。")
         return
 
-    # 3. 把法条拼成材料段，出处用【法律名 条文号】标注
-    context = "\n\n".join(f"【{h['law']} {h['article']}】\n{h['text']}" for h in hits)
+    # 3. 把法条拼成材料段，出处用【面包屑】标注（章节位置一目了然）
+    context = "\n\n".join(f"【{h['breadcrumb']}】\n{h['text']}" for h in hits)
 
     # 4. 按模板拼提示词（出一张"开卷考试"的卷子）
     prompt = PROMPT_TEMPLATE.format(context=context, question=question)
 
-    # 5. 调大模型作答，先打印检索依据（让人能核对答案是不是照材料说的）
+    # 5. 调大模型作答，先打印检索依据（双链展示这条还引用了哪些条文）
     print("检索到的依据：")
     for h in hits:
-        print(f"  【{h['law']} > {h['article']}】相似度 {h['score']:.4f}")
+        line = f"  【{h['breadcrumb']}】相似度 {h['score']:.4f}"
+        if h["links"]:
+            line += f"  双链→ {'、'.join(h['links'])}"
+        print(line)
     reply = ask_llm(prompt)
     print(f"\n===== 咨询回答 =====\n{reply}")
 
