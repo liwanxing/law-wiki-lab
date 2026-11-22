@@ -10,7 +10,7 @@ import sys
 import urllib.request
 
 from app.common import client, embed
-from app.config import COLLECTION_NAME, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from app.config import COLLECTION_NAME, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, RELEVANCE_THRESHOLD
 
 PROMPT_TEMPLATE = """你是一个法律咨询助手。请严格只依据下面的法律条文材料回答问题。
 
@@ -88,13 +88,21 @@ def answer(question: str) -> None:
     # 1. 检索：找最相关的几条法条
     hits = search(question)
 
-    # 2. 把法条拼成材料段，出处用【法律名 条文号】标注
+    # 2. 阈值闸门：最高分低于阈值 = 库里没有相关法条。
+    #    不把弱相关材料喂给模型——省一次调用，也杜绝模型硬答。
+    #    hits 按 score 从高到低排列，所以看第一个就知道整体质量。
+    if not hits or hits[0]["score"] < RELEVANCE_THRESHOLD:
+        print("库里没有找到与这个问题相关的法条，无法回答。")
+        print("可以换个说法重试，或往 data/raw/ 里扩充法律库。")
+        return
+
+    # 3. 把法条拼成材料段，出处用【法律名 条文号】标注
     context = "\n\n".join(f"【{h['law']} {h['article']}】\n{h['text']}" for h in hits)
 
-    # 3. 按模板拼提示词（出一张"开卷考试"的卷子）
+    # 4. 按模板拼提示词（出一张"开卷考试"的卷子）
     prompt = PROMPT_TEMPLATE.format(context=context, question=question)
 
-    # 4. 调大模型作答，先打印检索依据（让人能核对答案是不是照材料说的）
+    # 5. 调大模型作答，先打印检索依据（让人能核对答案是不是照材料说的）
     print("检索到的依据：")
     for h in hits:
         print(f"  【{h['law']} > {h['article']}】相似度 {h['score']:.4f}")
