@@ -88,7 +88,7 @@ def ingest() -> int:
 
 
 def search(question: str, top_k: int = 3) -> None:
-    """查询三步：问题变向量 -> 找最近的 top_k 块 -> 打印原文和相似度。"""
+    """查询三步：问题变向量 -> 找最近的 top_k 块 -> 打印出处、相似度和原文。"""
     qvec = embed([question])[0]
     hits = client.query_points(
         collection_name=COLLECTION_NAME,
@@ -97,7 +97,12 @@ def search(question: str, top_k: int = 3) -> None:
         with_payload=True,   # 把入库时存的原文带回来
     )
     for h in hits.points:
-        print(f"\n[{h.score:.4f}] {h.payload['text']}")
+        text = h.payload["text"]
+        # 出处就藏在块的首行（入库时每个块都以 "### 第X条" 开头），
+        # 去掉 "### " 前缀得到干净的条文号，如 "### 第十九条" -> "第十九条"
+        source = text.splitlines()[0].removeprefix("### ")
+        print(f"\n【{source}】相似度 {h.score:.4f}")
+        print(text)
 
 
 if __name__ == "__main__":
