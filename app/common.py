@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 
 # 本机网络设置（必须放在建立连接之前）：
@@ -31,3 +32,13 @@ def embed(texts: list[str]) -> list[list[float]]:
     意思相近的文本，向量就挨得近——"按意思找"的原理全在这。
     """
     return [list(v) for v in model.embed(texts)]
+
+
+def fingerprint(text: str) -> str:
+    """文本指纹：内容算出的短哈希（8 位十六进制）。
+
+    用途：笔记保存时记下"我当时依据的条文长什么样"（面包屑@指纹）。
+    条文内容一改，指纹就对不上——同步模块(sync.py)据此找出过期笔记。
+    同样内容的文本永远算出同一个指纹，和 uuid5 是同一个思路。
+    """
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
